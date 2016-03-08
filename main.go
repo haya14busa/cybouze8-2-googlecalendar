@@ -29,8 +29,8 @@ import (
 )
 
 var (
-	cybozeUserID string
-	cybozeUserPW string
+	cybozuUserID string
+	cybozuUserPW string
 	baseURL      string // http://example/cgi-bin/cbag/ag.cgi
 
 	calendarId string // xxxxxxxxxxxxxxxxxxxxxxxxxx@group.calendar.google.com
@@ -38,12 +38,12 @@ var (
 )
 
 func initConfig() {
-	cybozeUserID = getConfig("C2G_CYBOZE_USERID")
-	cybozeUserPW = getConfig("C2G_CYBOZE_USERPW")
-	baseURL = getConfig("C2G_BASE_URL")
+	cybozuUserID = getConfig("C2G_CYBOZU_USERID")
+	cybozuUserPW = getConfig("C2G_CYBOZU_USERPW")
+	baseURL = getConfig("C2G_CYBOZU_BASE_URL")
 
 	calendarId = getConfig("C2G_CALENDAR_ID")
-	userID = cybozeUserID // TODO: support other users???
+	userID = cybozuUserID // TODO: support other users???
 }
 
 func getConfig(key string) string {
@@ -63,10 +63,10 @@ func main() {
 
 	agsessid, err := getAGSESSID()
 	if err != nil {
-		log.Fatalf("Cannot get AGSESSID from cyboze", err)
+		log.Fatalf("Cannot get AGSESSID from cybozu", err)
 	}
 
-	node := calendarHtml(agsessid, cybozeUserID, userID)
+	node := calendarHtml(agsessid, cybozuUserID, userID)
 	doc := goquery.NewDocumentFromNode(node)
 
 	gcal.DeleteUpcomingEvents()
@@ -95,7 +95,7 @@ func main() {
 func getGcal() *GoogleCalendar {
 	ctx := context.Background()
 
-	b, err := ioutil.ReadFile("client_secret.json")
+	b, err := ioutil.ReadFile(configFilePath("client_secret.json"))
 	if err != nil {
 		log.Fatalf("Unable to read client secret file: %v", err)
 	}
@@ -187,7 +187,7 @@ func updateBannerEvent(gcal *GoogleCalendar, s *goquery.Selection, agsessid stri
 	queryParam := queryParamRe.FindString(href)
 
 	url := baseURL + strings.Replace(queryParam, "?page=ScheduleView", "?page=ScheduleBannerModify", 1)
-	node, err := cybozeHtml(agsessid, cybozeUserID, userID, url)
+	node, err := cybozuHtml(agsessid, cybozuUserID, userID, url)
 	if err != nil {
 		log.Printf("fail to get html node: %v", err)
 		return
@@ -329,8 +329,8 @@ func updateEvent(gcal *GoogleCalendar, s *goquery.Selection) {
 func getAGSESSID() (string, error) {
 	resp, err := http.PostForm(baseURL,
 		url.Values{
-			"_ID":         {cybozeUserID},
-			"Password":    {cybozeUserPW},
+			"_ID":         {cybozuUserID},
+			"Password":    {cybozuUserPW},
 			"csrf_ticket": {""},
 			"_System":     {"login"},
 			"_Login":      {"1"},
@@ -354,14 +354,14 @@ func getAGSESSID() (string, error) {
 func calendarHtml(agsessid, loginid, userID string) *html.Node {
 	now := time.Now().Format("2006.01.02")
 	url := fmt.Sprintf("%s?page=ScheduleUserMonth&UID=%s&Date=da.%s", baseURL, userID, now)
-	node, err := cybozeHtml(agsessid, loginid, userID, url)
+	node, err := cybozuHtml(agsessid, loginid, userID, url)
 	if err != nil {
 		panic(err)
 	}
 	return node
 }
 
-func cybozeHtml(agsessid, loginid, userID, url string) (*html.Node, error) {
+func cybozuHtml(agsessid, loginid, userID, url string) (*html.Node, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, sdch")
@@ -435,14 +435,7 @@ func getTokenFromWeb(config *oauth2.Config) *oauth2.Token {
 // tokenCacheFile generates credential file path/filename.
 // It returns the generated credential path/filename.
 func tokenCacheFile() (string, error) {
-	usr, err := user.Current()
-	if err != nil {
-		return "", err
-	}
-	tokenCacheDir := filepath.Join(usr.HomeDir, ".credentials")
-	os.MkdirAll(tokenCacheDir, 0700)
-	return filepath.Join(tokenCacheDir,
-		url.QueryEscape("cybouze8togcal.json")), err
+	return configFilePath("token.json"), nil
 }
 
 // tokenFromFile retrieves a Token from a given file path.
@@ -468,4 +461,14 @@ func saveToken(file string, token *oauth2.Token) {
 	}
 	defer f.Close()
 	json.NewEncoder(f).Encode(token)
+}
+
+func configFilePath(filename string) string {
+	usr, err := user.Current()
+	if err != nil {
+		return ""
+	}
+	configDir := filepath.Join(usr.HomeDir, ".config", "cybouze8-2-googlecalendar")
+	os.MkdirAll(configDir, 0700)
+	return filepath.Join(configDir, url.QueryEscape(filename))
 }
