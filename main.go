@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,6 +79,14 @@ func main() {
 			updateEvent(gcal, s)
 		}(s)
 	})
+
+	doc.Find(".bannerevent").Each(func(i int, s *goquery.Selection) {
+		waitGroup.Add(1)
+		go func(s *goquery.Selection) {
+			defer waitGroup.Done()
+			updateBannerEvent(gcal, s, agsessid)
+		}(s)
+	})
 	waitGroup.Wait()
 
 	log.Println("===Finish: cybouze8togcal===")
@@ -148,14 +157,98 @@ func (this *GoogleCalendar) DeleteUpcomingEvents() error {
 			if err == nil && startDate.Before(now) {
 				return
 			}
-			log.Printf("delete upcoming event: %v", item.Summary)
-			if err := this.svc.Events.Delete(this.calendarId, item.Id).Do(); err != nil {
+			if err := this.DeleteEvent(item); err != nil {
 				log.Printf("Unable to delete event: %v", err)
+			} else {
+				log.Printf("delete upcoming event: %v", item.Summary)
 			}
 		}(item)
 	}
 	waitGroup.Wait()
 	return nil
+}
+
+func (this *GoogleCalendar) DeleteEvent(event *calendar.Event) error {
+	err := this.svc.Events.Delete(this.calendarId, event.Id).Do()
+	if err != nil {
+		rateLimitExeeded, _ := regexp.MatchString("403: Rate Limit Exceeded", err.Error())
+		if rateLimitExeeded {
+			log.Printf("Unable to delete event '%v'. retry after 10 seconds: %v", event.Summary, err)
+			time.Sleep(10 * time.Second)
+			return this.DeleteEvent(event)
+		}
+	}
+	return err
+}
+
+func updateBannerEvent(gcal *GoogleCalendar, s *goquery.Selection, agsessid string) {
+	href, _ := s.Attr("href")
+	queryParamRe := regexp.MustCompile(`\?.*$`)
+	queryParam := queryParamRe.FindString(href)
+
+	url := baseURL + strings.Replace(queryParam, "?page=ScheduleView", "?page=ScheduleBannerModify", 1)
+	node, err := cybozeHtml(agsessid, cybozeUserID, userID, url)
+	if err != nil {
+		log.Printf("fail to get html node: %v", err)
+		return
+	}
+	doc := goquery.NewDocumentFromNode(node)
+	startYear, err := selectedIntValue(doc, "SetDate.Year")
+	startMonth, err := selectedIntValue(doc, "SetDate.Month")
+	startDay, err := selectedIntValue(doc, "SetDate.Day")
+	endYear, err := selectedIntValue(doc, "EndDate.Year")
+	endMonth, err := selectedIntValue(doc, "EndDate.Month")
+	endDay, err := selectedIntValue(doc, "EndDate.Day")
+	if err != nil {
+		log.Printf("Cannot parse event date: %v", err)
+		return
+	}
+
+	title, _ := s.Attr("title")
+
+	loc, _ := time.LoadLocation("Asia/Tokyo")
+	startDateTime := time.Date(startYear, time.Month(startMonth), startDay, 0, 0, 0, 0, loc)
+	endDateTime := time.Date(endYear, time.Month(endMonth), endDay, 0, 0, 0, 0, loc)
+	startDate := startDateTime.Format("2006-01-02")
+	endDate := endDateTime.Format("2006-01-02")
+
+	eventIdRe := regexp.MustCompile(`sEID=([\d]+)`)
+	eventId := eventIdRe.FindStringSubmatch(href)[1] + fmt.Sprintf("%d%d%d", startYear, startMonth, startDay)
+
+	event := &calendar.Event{
+		Id:      eventId,
+		Summary: title,
+		Start: &calendar.EventDateTime{
+			Date:     startDate,
+			TimeZone: "Asia/Tokyo",
+		},
+		End: &calendar.EventDateTime{
+			Date:     endDate,
+			TimeZone: "Asia/Tokyo",
+		},
+	}
+
+	if _, err := gcal.Upsert(event); err != nil {
+		log.Printf("Unable to upsert bannerevent '%v': %v", event.Summary, err)
+	} else {
+		log.Printf("Succeed to update bannerevent %v-%v, %v", startDate, endDate, title)
+	}
+}
+
+func selectedIntValue(doc *goquery.Document, name string) (int, error) {
+	re := regexp.MustCompile(`^\d+`)
+	var r int
+	found := false
+	doc.Find(fmt.Sprintf("select[name='%s'] option", name)).Each(func(i int, s *goquery.Selection) {
+		if _, ok := s.Attr("selected"); ok {
+			found = true
+			r, _ = strconv.Atoi(re.FindString(s.Text()))
+		}
+	})
+	if found {
+		return r, nil
+	}
+	return 0, fmt.Errorf("selected value doesn't exist for '%s'", name)
 }
 
 func updateEvent(gcal *GoogleCalendar, s *goquery.Selection) {
@@ -164,7 +257,7 @@ func updateEvent(gcal *GoogleCalendar, s *goquery.Selection) {
 	matches := re.FindStringSubmatch(href)
 	year, err := strconv.Atoi(matches[1])
 	month, err := strconv.Atoi(matches[2])
-	day, err := strconv.Atoi(re.FindStringSubmatch(href)[3])
+	day, err := strconv.Atoi(matches[3])
 	if err != nil {
 		log.Printf("Cannot parse event date: %v", err)
 		return
@@ -183,13 +276,16 @@ func updateEvent(gcal *GoogleCalendar, s *goquery.Selection) {
 	eventId := eventIdRe.FindStringSubmatch(href)[1] + fmt.Sprintf("%d%d%d", year, month, day)
 	title := s.Find(".eventTitle").Text()
 
+	eventTimeRe := regexp.MustCompile(`^(\d{2}):(\d{2})(?:-(\d{2}):(\d{2}))?`)
+	eventTime := eventTimeRe.FindStringSubmatch(title)
+
+	// Remove time parts from title
+	title = eventTimeRe.ReplaceAllString(title, "")
+
 	event := &calendar.Event{
 		Id:      eventId,
 		Summary: title,
 	}
-
-	eventTimeRe := regexp.MustCompile(`^(\d{2}):(\d{2})(?:-(\d{2}):(\d{2}))?`)
-	eventTime := eventTimeRe.FindStringSubmatch(title)
 
 	if len(eventTime) == 5 { // Match!
 		startHour, _ := strconv.Atoi(eventTime[1])
@@ -258,6 +354,14 @@ func getAGSESSID() (string, error) {
 func calendarHtml(agsessid, loginid, userID string) *html.Node {
 	now := time.Now().Format("2006.01.02")
 	url := fmt.Sprintf("%s?page=ScheduleUserMonth&UID=%s&Date=da.%s", baseURL, userID, now)
+	node, err := cybozeHtml(agsessid, loginid, userID, url)
+	if err != nil {
+		panic(err)
+	}
+	return node
+}
+
+func cybozeHtml(agsessid, loginid, userID, url string) (*html.Node, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Pragma", "no-cache")
 	req.Header.Set("Accept-Encoding", "gzip, deflate, sdch")
@@ -269,11 +373,29 @@ func calendarHtml(agsessid, loginid, userID string) *html.Node {
 	req.Header.Set("Cache-Control", "no-cache")
 
 	client := new(http.Client)
-	resp, _ := client.Do(req)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
 	defer resp.Body.Close()
-	utfBody, _ := iconv.NewReader(resp.Body, "Shift_JIS", "utf-8")
-	node, _ := html.Parse(utfBody)
-	return node
+
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(resp.Body)
+	body := buf.String()
+
+	utfBody, err := iconv.NewReader(strings.NewReader(body), "Shift_JIS", "utf-8")
+	if err != nil {
+		return nil, fmt.Errorf("fail to convert encoding: %v", err)
+	}
+	node, err := html.Parse(utfBody)
+	if err != nil {
+		log.Printf("fail to parse html utf-8-ed body, retry with original body: %v", err)
+		node, err = html.Parse(strings.NewReader(body))
+		if err != nil {
+			return nil, fmt.Errorf("fail to parse html body: %v", err)
+		}
+	}
+	return node, nil
 }
 
 // getClient uses a Context and Config to retrieve a Token
