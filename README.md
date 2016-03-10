@@ -1,16 +1,16 @@
-:date: cybouze8-2-googlecalendar :date:
+:date: cybozu-2-googlecalendar :date:
 =======================================
 
 Sync calendar of Cybozu Office Version 8.0.1 with Google Calendar
 
 How to Use
 ----------
-1. `$ go get -u github.com/haya14busa/cybouze8-2-googlecalendar`
+1. `$ go get -u github.com/haya14busa/cybozu-2-googlecalendar`
 2. Create a project and `Create credentials` with OAuth client ID whose `Application type` is `Other` https://console.developers.google.com/project
-3. Download and put `client_secret.json` to `~/.config/cybouze8-2-googlecalendar/client_secret.json`.
+3. Download and put `client_secret.json` to `~/.config/cybozu-2-googlecalendar/client_secret.json`.
 4. Create Google Calendar to sync with and get calendar id (`xxxxxxxxxxxxxxxxxxxxxxxxxx@group.calendar.google.com`). You can find calendar id from Calendar setting page
 5. Configure required environment variables
-6. `$ cybouze8-2-googlecalendar`
+6. `$ cybozu-2-googlecalendar`
 
 ### Environment variables
 

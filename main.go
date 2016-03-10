@@ -55,7 +55,7 @@ func getConfig(key string) string {
 }
 
 func main() {
-	log.Println("===Start: cybouze8togcal===")
+	log.Println("===Start: cybozu8togcal===")
 
 	initConfig()
 
@@ -89,7 +89,7 @@ func main() {
 	})
 	waitGroup.Wait()
 
-	log.Println("===Finish: cybouze8togcal===")
+	log.Println("===Finish: cybozu8togcal===")
 }
 
 func getGcal() *GoogleCalendar {
@@ -468,7 +468,7 @@ func configFilePath(filename string) string {
 	if err != nil {
 		return ""
 	}
-	configDir := filepath.Join(usr.HomeDir, ".config", "cybouze8-2-googlecalendar")
+	configDir := filepath.Join(usr.HomeDir, ".config", "cybozu8-2-googlecalendar")
 	os.MkdirAll(configDir, 0700)
 	return filepath.Join(configDir, url.QueryEscape(filename))
 }
