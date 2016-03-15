@@ -266,7 +266,7 @@ func updateEvent(gcal *GoogleCalendar, s *goquery.Selection) {
 	loc, _ := time.LoadLocation("Asia/Tokyo")
 
 	dateTime := time.Date(year, time.Month(month), day, 0, 0, 0, 0, loc)
-	if dateTime.Before(time.Now()) {
+	if dateTime.Before(time.Now().AddDate(0, 0, -7)) {
 		// Update upcoming events, not old events
 		return
 	}
