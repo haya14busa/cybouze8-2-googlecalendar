@@ -140,7 +140,7 @@ func (this *GoogleCalendar) Upsert(event *calendar.Event) (*calendar.Event, erro
 
 func (this *GoogleCalendar) DeleteUpcomingEvents() error {
 	allEvents, err := this.svc.Events.List(calendarId).Do()
-	now := time.Now()
+	tommorow := time.Now().AddDate(0, 0, 1)
 	if err != nil {
 		return err
 	}
@@ -150,11 +150,11 @@ func (this *GoogleCalendar) DeleteUpcomingEvents() error {
 		go func(item *calendar.Event) {
 			defer waitGroup.Done()
 			startTime, err := time.Parse(time.RFC3339, item.Start.DateTime)
-			if err == nil && startTime.Before(now) {
+			if err == nil && startTime.Before(tommorow) {
 				return
 			}
 			startDate, err := time.Parse("2006-01-02", item.Start.DateTime)
-			if err == nil && startDate.Before(now) {
+			if err == nil && startDate.Before(tommorow) {
 				return
 			}
 			if err := this.DeleteEvent(item); err != nil {
