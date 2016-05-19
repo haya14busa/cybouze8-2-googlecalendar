@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -22,10 +24,11 @@ import (
 	"golang.org/x/net/html"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"golang.org/x/text/encoding/japanese"
+	"golang.org/x/text/transform"
 	"google.golang.org/api/calendar/v3"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/djimenez/iconv-go"
 )
 
 var (
@@ -67,6 +70,7 @@ func main() {
 	}
 
 	node := calendarHtml(agsessid, cybozuUserID, userID)
+
 	doc := goquery.NewDocumentFromNode(node)
 
 	gcal.DeleteUpcomingEvents()
@@ -383,17 +387,14 @@ func cybozuHtml(agsessid, loginid, userID, url string) (*html.Node, error) {
 	buf.ReadFrom(resp.Body)
 	body := buf.String()
 
-	utfBody, err := iconv.NewReader(strings.NewReader(body), "Shift_JIS", "utf-8")
+	utf8, err := convertShiftJIS2utf8(strings.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("fail to convert encoding: %v", err)
+		return nil, err
 	}
-	node, err := html.Parse(utfBody)
+
+	node, err := html.Parse(strings.NewReader(utf8))
 	if err != nil {
-		log.Printf("fail to parse html utf-8-ed body, retry with original body: %v", err)
-		node, err = html.Parse(strings.NewReader(body))
-		if err != nil {
-			return nil, fmt.Errorf("fail to parse html body: %v", err)
-		}
+		return nil, err
 	}
 	return node, nil
 }
@@ -471,4 +472,17 @@ func configFilePath(filename string) string {
 	configDir := filepath.Join(usr.HomeDir, ".config", "cybozu8-2-googlecalendar")
 	os.MkdirAll(configDir, 0700)
 	return filepath.Join(configDir, url.QueryEscape(filename))
+}
+
+func convertShiftJIS2utf8(inStream io.Reader) (string, error) {
+	//read from stream (Shift-JIS to UTF-8)
+	scanner := bufio.NewScanner(transform.NewReader(inStream, japanese.ShiftJIS.NewDecoder()))
+	list := make([]string, 0)
+	for scanner.Scan() {
+		list = append(list, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	return strings.Join(list, ""), nil
 }
